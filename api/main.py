@@ -1,16 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .db.session import engine
-from .models.base import Base
-from .models.documents import Document
-from .models.requirements import Requirement
-from .models.events import Event
+
+from .middleware import RequestLoggingMiddleware
 from .routers import health, documents, requirements
 
 app = FastAPI(title="Compliance Copilot API", version="0.1.0")
 
-# DB init 
-Base.metadata.create_all(bind=engine)
+app.add_middleware(RequestLoggingMiddleware)
 
 # CORS (allow local web)
 app.add_middleware(
