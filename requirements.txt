@@ -1,15 +1,23 @@
 alembic==1.13.2
 fastapi==0.111.0
 instructor==1.3.3
+itsdangerous==2.2.0
 openai==1.40.6
 pdfplumber==0.10.3
 psycopg2-binary==2.9.9
 pydantic==2.7.4
+pydantic-settings==2.3.4
 python-dotenv==1.0.1
 sqlalchemy==2.0.30
 uvicorn[standard]==0.30.1
+APScheduler==3.10.4
 httpx<0.28
+boto3==1.34.162
+botocore==1.34.162
+typer==0.12.3
+email-validator==2.2.0
 
 # Testing utilities
 pytest==8.3.2
 pytest-asyncio==0.23.7
+moto[s3, ses]==5.0.14

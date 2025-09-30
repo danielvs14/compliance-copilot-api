@@ -1,16 +1,16 @@
 from __future__ import annotations
 
+import io
 import logging
 import os
 import re
-import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
-from ..db.session import SessionLocal
+from ..dependencies.auth import AuthContext, require_auth
+from ..dependencies.db import get_db
 from ..models.documents import Document
 from ..models.events import Event
 from ..models.requirements import Requirement, RequirementStatusEnum
@@ -18,22 +18,13 @@ from ..services.extraction_pipeline import attach_translations, extract_requirem
 from ..services.metrics import record_requirements_created
 from ..services.parse_pdf import extract_text_from_pdf
 from ..services.schedule import next_due_from_frequency
+from ..services.storage import get_storage_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
-UPLOAD_DIR = Path("uploads")
-UPLOAD_DIR.mkdir(exist_ok=True)
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 def sanitize_filename(filename: str) -> str:
@@ -56,15 +47,12 @@ def parse_due_date(value: str | None) -> datetime | None:
 
 @router.post("/documents/upload")
 def upload_and_extract(
-    org_id: str = Form(...),
     trade: str = Form("electrical"),
     file: UploadFile = File(...),
+    context: AuthContext = Depends(require_auth),
     db: Session = Depends(get_db),
 ):
-    try:
-        org_uuid = uuid.UUID(org_id)
-    except ValueError as exc:  # pragma: no cover - FastAPI handles validation
-        raise HTTPException(status_code=400, detail="Invalid org_id") from exc
+    org_uuid = context.org.id
 
     if not file.filename:
         raise HTTPException(status_code=400, detail="Filename required")
@@ -74,27 +62,34 @@ def upload_and_extract(
         raise HTTPException(status_code=400, detail="PDF only.")
 
     sanitized_name = sanitize_filename(file.filename)
-    destination = UPLOAD_DIR / f"{uuid.uuid4()}{ext}"
     total_bytes = 0
 
+    buffer = io.BytesIO()
+
     try:
-        with destination.open("wb") as out:
-            while True:
-                chunk = file.file.read(1024 * 1024)
-                if not chunk:
-                    break
-                total_bytes += len(chunk)
-                if total_bytes > MAX_UPLOAD_BYTES:
-                    out.close()
-                    destination.unlink(missing_ok=True)
-                    raise HTTPException(status_code=400, detail="File too large.")
-                out.write(chunk)
+        while True:
+            chunk = file.file.read(1024 * 1024)
+            if not chunk:
+                break
+            total_bytes += len(chunk)
+            if total_bytes > MAX_UPLOAD_BYTES:
+                raise HTTPException(status_code=400, detail="File too large.")
+            buffer.write(chunk)
     finally:
         file.file.close()
 
     start = datetime.now(timezone.utc)
 
-    doc = Document(org_id=org_uuid, name=sanitized_name, storage_url=str(destination))
+    pdf_bytes = buffer.getvalue()
+    storage = get_storage_service()
+    stored_file = storage.upload_fileobj(
+        org_uuid,
+        io.BytesIO(pdf_bytes),
+        filename=sanitized_name,
+        content_type=file.content_type or "application/pdf",
+    )
+
+    doc = Document(org_id=org_uuid, name=sanitized_name, storage_url=stored_file.storage_url)
     db.add(doc)
     db.flush()
 
@@ -103,13 +98,13 @@ def upload_and_extract(
             org_id=org_uuid,
             document_id=doc.id,
             type="upload",
-            data={"filename": sanitized_name, "bytes": total_bytes},
+            data={"filename": sanitized_name, "bytes": total_bytes, "storage_key": stored_file.key},
         )
     )
     db.flush()
 
     try:
-        text = extract_text_from_pdf(str(destination))
+        text = extract_text_from_pdf(io.BytesIO(pdf_bytes))
         if not text:
             raise HTTPException(status_code=400, detail="Could not extract text from PDF.")
         if len(text) < 200:
@@ -175,11 +170,11 @@ def upload_and_extract(
 
         latency_ms = int((doc.extracted_at - start).total_seconds() * 1000)
         logger.info(
-            "document_extraction_latency_ms=%s document_id=%s org_id=%s requirements=%s",
-            latency_ms,
+            "document_extracted document_id=%s org_id=%s requirements=%s latency_ms=%s",
             doc.id,
             org_uuid,
             requirement_count,
+            latency_ms,
         )
 
         db.add(
@@ -199,11 +194,17 @@ def upload_and_extract(
 
     except HTTPException:
         db.rollback()
-        destination.unlink(missing_ok=True)
+        try:
+            storage.delete(stored_file.key)
+        except Exception:  # pragma: no cover - cleanup best effort
+            logger.warning("Failed to delete stored file after HTTP error", exc_info=True)
         raise
     except Exception as exc:  # pragma: no cover - keeps API responses clean
         db.rollback()
-        destination.unlink(missing_ok=True)
+        try:
+            storage.delete(stored_file.key)
+        except Exception:  # pragma: no cover - cleanup best effort
+            logger.warning("Failed to delete stored file after exception", exc_info=True)
         logger.exception("Document extraction failed")
         raise HTTPException(status_code=500, detail="Extraction failed.") from exc
 
@@ -211,4 +212,6 @@ def upload_and_extract(
         "document_id": str(doc.id),
         "name": doc.name,
         "requirements": created_payload,
+        "storage_url": stored_file.storage_url,
+        "download_url": stored_file.presigned_url,
     }

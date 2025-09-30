@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Dict
 
 from sqlalchemy.orm import Session
 
 from ..models.org_metrics import OrgRequirementMetrics
+from ..models.reminder_jobs import ReminderJob, ReminderStatusEnum
 from ..models.requirements import Requirement
 
 
@@ -56,3 +57,65 @@ def record_requirement_completed(db: Session, requirement: Requirement) -> None:
     bucket = _bucket_for_delta(requirement.completed_at - requirement.created_at)
     histogram[bucket] = histogram.get(bucket, 0) + 1
     metrics.completion_time_histogram = histogram
+
+
+def record_reminder_scheduled(db: Session, org_id: uuid.UUID) -> None:
+    metrics = _get_metrics_row(db, org_id)
+    metrics.reminders_scheduled_total = (metrics.reminders_scheduled_total or 0) + 1
+
+
+def record_reminder_sent(db: Session, org_id: uuid.UUID) -> None:
+    metrics = _get_metrics_row(db, org_id)
+    metrics.reminders_sent_total = (metrics.reminders_sent_total or 0) + 1
+
+
+def record_reminder_failed(db: Session, org_id: uuid.UUID) -> None:
+    metrics = _get_metrics_row(db, org_id)
+    metrics.reminders_failed_total = (metrics.reminders_failed_total or 0) + 1
+
+
+def record_overdue_completion(db: Session, requirement: Requirement) -> None:
+    if not requirement.completed_at or not requirement.due_date or not requirement.org_id:
+        return
+
+    if requirement.completed_at <= requirement.due_date:
+        return
+
+    metrics = _get_metrics_row(db, requirement.org_id)
+    metrics.overdue_completion_total = (metrics.overdue_completion_total or 0) + 1
+
+    histogram: Dict[str, int] = metrics.overdue_completion_histogram or {}
+    bucket = _bucket_for_delta(requirement.completed_at - requirement.due_date)
+    histogram[bucket] = histogram.get(bucket, 0) + 1
+    metrics.overdue_completion_histogram = histogram
+
+
+def record_completion_after_reminder(db: Session, requirement: Requirement) -> None:
+    if not requirement.completed_at or not requirement.org_id:
+        return
+
+    reminder = (
+        db.query(ReminderJob)
+        .filter(
+            ReminderJob.target_type == "requirement",
+            ReminderJob.target_id == requirement.id,
+            ReminderJob.status == ReminderStatusEnum.SENT,
+        )
+        .order_by(ReminderJob.last_attempt_at.desc().nullslast(), ReminderJob.updated_at.desc())
+        .first()
+    )
+
+    if not reminder:
+        return
+
+    sent_at: datetime | None = reminder.last_attempt_at or reminder.updated_at or reminder.created_at
+    if not sent_at or sent_at > requirement.completed_at:
+        return
+
+    metrics = _get_metrics_row(db, requirement.org_id)
+    metrics.post_reminder_completion_total = (metrics.post_reminder_completion_total or 0) + 1
+
+    histogram: Dict[str, int] = metrics.post_reminder_completion_histogram or {}
+    bucket = _bucket_for_delta(requirement.completed_at - sent_at)
+    histogram[bucket] = histogram.get(bucket, 0) + 1
+    metrics.post_reminder_completion_histogram = histogram

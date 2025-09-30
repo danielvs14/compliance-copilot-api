@@ -13,6 +13,7 @@ load_dotenv()
 from api.db.session import SessionLocal
 from api.models.documents import Document
 from api.models.events import Event
+from api.models.orgs import Org
 from api.models.requirements import Requirement, RequirementStatusEnum
 from api.services.extraction_pipeline import attach_translations, extract_requirement_drafts
 from api.services.metrics import record_requirements_created
@@ -34,6 +35,11 @@ def run_seed(org_id: uuid.UUID | None = None) -> None:
     session = SessionLocal()
     start = datetime.now(timezone.utc)
     try:
+        existing_org = session.query(Org).filter(Org.id == org_uuid).one_or_none()
+        if existing_org is None:
+            session.add(Org(id=org_uuid, name="Seed Org"))
+            session.flush()
+
         existing = (
             session.query(Document)
             .filter(Document.storage_url == str(FIXTURE_PATH), Document.org_id == org_uuid)
@@ -92,6 +98,7 @@ def run_seed(org_id: uuid.UUID | None = None) -> None:
                 category=draft.category,
                 frequency=draft.frequency,
                 due_date=due_date,
+                next_due=due_date,
                 status=status,
                 source_ref=draft.source_ref,
                 confidence=draft.confidence,

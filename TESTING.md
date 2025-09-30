@@ -20,21 +20,26 @@
 
 ## Integration Tests
 1. **Upload → Extract → List**
-   - Use TestClient with temporary uploads dir and mocked `extract_requirement_drafts` to return deterministic drafts (≥5 items, mix of confidences).
+   - Use TestClient with moto-backed S3 bucket and mocked `extract_requirement_drafts` to return deterministic drafts (≥5 items, mix of confidences).
    - Assert 400s for `.docx`, `.jpg`, files >20MB, and PDFs <200 chars.
    - Verify events inserted with `data` JSON and log line emitted.
-2. **Tenancy scoping**
-   - Seed two orgs, create requirements for each, call `GET /requirements` and `GET /requirements/{id}` with opposing `org_id` to assert 404 isolation.
-3. **Completion flow**
+2. **Passwordless auth flow**
+   - Seed login token, hit `/auth/callback`, confirm cookie issued, `/auth/me` returns profile, `/auth/logout` revokes session.
+3. **Tenancy scoping**
+   - Seed two users/orgs, create requirements for each, set cookies for org A/B and assert `/requirements` only returns scoped rows.
+4. **Permits & training uploads**
+   - POST to `/permits/upload` and `/training/upload`, ensure files land in `s3://bucket/{org_id}/...` and presigned URLs are returned.
+5. **Completion flow**
    - Call `POST /requirements/{id}/complete` and assert status transitions, `completed_at` timestamp, metrics increments, and completion event payload.
-4. **Regex fallback integration**
+6. **Regex fallback integration**
    - Provide PDF/text fixture containing "inspect daily" phrase with LLM mocked to return empty list; ensure fallback creates requirement flagged with `origin=regex` and `status=REVIEW`.
-5. **Migration/seed smoke** (CI job)
+7. **Migration/seed smoke** (CI job)
    - Spin containers, run `alembic upgrade head`, `python seed.py`, hit `/requirements` listing to ensure seeded data visible.
 
 ## Observability Checks
-- Capture `document_extraction_latency_ms` log via structured log handler in tests (use `caplog`) to assert latency message format.
+- Capture `document_extracted`, `permit_uploaded`, and `training_cert_uploaded` log lines via structured logger to assert org/user/request IDs present.
 - Validate `OrgRequirementMetrics` rows update after creation/completion events (query DB in tests).
+- Ensure auth events (`magic_link_issued`, `user_login`, `session_revoked`) emit expected metadata.
 
 ## Mocks & Fixtures
 - Provide fixture for `translate_batch_to_spanish` returning deterministic Spanish text.
@@ -47,4 +52,6 @@ Execute with `pytest` targeting new test modules (e.g., `tests/unit/test_regex_f
 - Ensure Postgres is running: `docker compose up -d`
 - Activate the project virtualenv (Python 3.11 recommended) and install deps: `pip install -r requirements.txt`
 - Apply migrations: `PYTHONPATH=$(pwd) alembic upgrade head`
+- Export ephemeral AWS creds for moto/localstack (optional but keeps boto3 happy):
+  - `export AWS_ACCESS_KEY_ID=test` `export AWS_SECRET_ACCESS_KEY=test` `export AWS_REGION=us-east-1`
 - Run the suite: `pytest`

@@ -1,6 +1,6 @@
 from enum import Enum
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, DateTime, ForeignKey, Enum as SAEnum, Float, text
+from sqlalchemy import Column, DateTime, Float, ForeignKey, String, Enum as SAEnum, text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 import uuid
@@ -17,8 +17,12 @@ class Requirement(Base):
     __tablename__ = "requirements"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    org_id = Column(UUID(as_uuid=True), nullable=False)
-    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=False)
+    org_id = Column(
+        UUID(as_uuid=True), ForeignKey("orgs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    document_id = Column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
+    )
     title_en = Column(String, nullable=False)
     title_es = Column(String, nullable=False)
     description_en = Column(String, nullable=False)
@@ -26,6 +30,7 @@ class Requirement(Base):
     category = Column(String, nullable=True)
     frequency = Column(String, nullable=True)   # "weekly", "annual", "before each use"
     due_date = Column(DateTime(timezone=True), nullable=True)
+    next_due = Column(DateTime(timezone=True), nullable=True)
     status = Column(SAEnum(RequirementStatusEnum, name="requirement_status"), nullable=False, server_default=RequirementStatusEnum.OPEN.value)
     source_ref = Column(String, nullable=False)
     confidence = Column(Float, nullable=False, default=0.7)

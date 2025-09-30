@@ -8,20 +8,14 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from ..db.session import SessionLocal
+from ..dependencies.auth import AuthContext, require_auth
+from ..dependencies.db import get_db
 from ..models.events import Event
 from ..models.requirements import Requirement, RequirementStatusEnum
 from ..services.metrics import record_requirement_completed
+from ..services.reminders import handle_completion_metrics
 
 router = APIRouter()
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 def serialize_requirement(requirement: Requirement) -> Dict[str, Any]:
@@ -36,6 +30,7 @@ def serialize_requirement(requirement: Requirement) -> Dict[str, Any]:
         "category": requirement.category,
         "frequency": requirement.frequency,
         "due_date": requirement.due_date.isoformat() if requirement.due_date else None,
+        "next_due": requirement.next_due.isoformat() if requirement.next_due else None,
         "status": requirement.status.value if isinstance(requirement.status, RequirementStatusEnum) else requirement.status,
         "source_ref": requirement.source_ref,
         "confidence": requirement.confidence,
@@ -46,22 +41,13 @@ def serialize_requirement(requirement: Requirement) -> Dict[str, Any]:
     }
 
 
-def parse_org_id(org_id: str) -> uuid.UUID:
-    try:
-        return uuid.UUID(org_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Invalid org_id") from exc
-
-
 @router.get("/requirements")
 def list_requirements(
-    org_id: str = Query(...),
     status: RequirementStatusEnum | None = Query(default=None),
+    context: AuthContext = Depends(require_auth),
     db: Session = Depends(get_db),
 ):
-    org_uuid = parse_org_id(org_id)
-
-    query = db.query(Requirement).filter(Requirement.org_id == org_uuid)
+    query = db.query(Requirement).filter(Requirement.org_id == context.org.id)
     if status:
         query = query.filter(Requirement.status == status)
 
@@ -70,8 +56,11 @@ def list_requirements(
 
 
 @router.get("/requirements/{req_id}")
-def get_requirement(req_id: str, org_id: str = Query(...), db: Session = Depends(get_db)):
-    org_uuid = parse_org_id(org_id)
+def get_requirement(
+    req_id: str,
+    context: AuthContext = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
     try:
         requirement_uuid = uuid.UUID(req_id)
     except ValueError as exc:
@@ -79,7 +68,7 @@ def get_requirement(req_id: str, org_id: str = Query(...), db: Session = Depends
 
     requirement = (
         db.query(Requirement)
-        .filter(Requirement.id == requirement_uuid, Requirement.org_id == org_uuid)
+        .filter(Requirement.id == requirement_uuid, Requirement.org_id == context.org.id)
         .one_or_none()
     )
     if requirement is None:
@@ -89,12 +78,16 @@ def get_requirement(req_id: str, org_id: str = Query(...), db: Session = Depends
 
 
 class CompletePayload(BaseModel):
-    org_id: uuid.UUID
     completed_by: str | None = None
 
 
 @router.post("/requirements/{req_id}/complete")
-def complete_requirement(req_id: str, payload: CompletePayload = Body(...), db: Session = Depends(get_db)):
+def complete_requirement(
+    req_id: str,
+    payload: CompletePayload = Body(...),
+    context: AuthContext = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
     try:
         requirement_uuid = uuid.UUID(req_id)
     except ValueError as exc:
@@ -102,7 +95,7 @@ def complete_requirement(req_id: str, payload: CompletePayload = Body(...), db: 
 
     requirement = (
         db.query(Requirement)
-        .filter(Requirement.id == requirement_uuid, Requirement.org_id == payload.org_id)
+        .filter(Requirement.id == requirement_uuid, Requirement.org_id == context.org.id)
         .one_or_none()
     )
     if requirement is None:
@@ -114,10 +107,11 @@ def complete_requirement(req_id: str, payload: CompletePayload = Body(...), db: 
     requirement.mark_complete()
     db.add(requirement)
     record_requirement_completed(db, requirement)
+    handle_completion_metrics(db, requirement)
 
     db.add(
         Event(
-            org_id=requirement.org_id,
+            org_id=context.org.id,
             document_id=requirement.document_id,
             requirement_id=requirement.id,
             type="completed",

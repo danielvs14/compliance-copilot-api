@@ -29,32 +29,39 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
         except Exception:
             duration_ms = int((time.perf_counter() - start) * 1000)
-            self._log(
-                {
-                    "event": "http_request_error",
-                    "request_id": request_id,
-                    "method": request.method,
-                    "path": request.url.path,
-                    "status": 500,
-                    "duration_ms": duration_ms,
-                },
-                level=logging.ERROR,
-            )
+            error_payload = {
+                "event": "http_request_error",
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "status": 500,
+                "duration_ms": duration_ms,
+            }
+            if getattr(request.state, "user_id", None):
+                error_payload["user_id"] = getattr(request.state, "user_id")
+            if getattr(request.state, "org_id", None):
+                error_payload["org_id"] = getattr(request.state, "org_id")
+
+            self._log(error_payload, level=logging.ERROR)
             raise
 
         duration_ms = int((time.perf_counter() - start) * 1000)
         response.headers.setdefault("x-request-id", request_id)
 
-        self._log(
-            {
-                "event": "http_request",
-                "request_id": request_id,
-                "method": request.method,
-                "path": request.url.path,
-                "status": response.status_code,
-                "duration_ms": duration_ms,
-            }
-        )
+        payload = {
+            "event": "http_request",
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+            "status": response.status_code,
+            "duration_ms": duration_ms,
+        }
+        if getattr(request.state, "user_id", None):
+            payload["user_id"] = getattr(request.state, "user_id")
+        if getattr(request.state, "org_id", None):
+            payload["org_id"] = getattr(request.state, "org_id")
+
+        self._log(payload)
 
         return response
 

@@ -11,7 +11,19 @@ from sqlalchemy import engine_from_config, pool
 from dotenv import load_dotenv
 
 from api.models.base import Base  # noqa: F401
-from api.models import documents, events, org_metrics, requirements  # noqa: F401
+from api.models import (
+    documents,
+    events,
+    login_tokens,
+    memberships,
+    org_metrics,
+    orgs,
+    permits,
+    requirements,
+    training_certs,
+    user_sessions,
+    users,
+)  # noqa: F401
 
 load_dotenv()
 
