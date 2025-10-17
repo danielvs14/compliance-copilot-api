@@ -1,0 +1,6 @@
+Arc Flash Safety Guidelines
+
+1. Wear arc-rated PPE before entering energized work zones.
+2. Inspect protective devices monthly and log deficiencies.
+3. Barricade the arc flash boundary with visible signage before each shift.
+4. Maintain a documented maintenance program for switchgear assets annually.

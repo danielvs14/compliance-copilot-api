@@ -1,0 +1,5 @@
+Lockout Tagout Briefing
+
+Foremen must verify panel schedules quarterly and certify that energy isolating devices are labeled.
+Crew leads document annual breaker inspections and corrective actions.
+Temporary enclosures require warning placards whenever energized conductors are exposed.

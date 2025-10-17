@@ -6,7 +6,12 @@ from datetime import datetime, timedelta, timezone
 from api.config import settings
 from api.db.session import SessionLocal
 from api.models.documents import Document
-from api.models.requirements import Requirement, RequirementStatusEnum
+from api.models.requirements import (
+    Requirement,
+    RequirementAnchorTypeEnum,
+    RequirementFrequencyEnum,
+    RequirementStatusEnum,
+)
 from api.models.user_sessions import UserSession
 from api.services.auth import AuthService
 
@@ -25,6 +30,8 @@ def test_requirements_list_is_scoped_by_org(client):
         session.add_all([doc_a, doc_b])
         session.flush()
 
+        now = datetime.now(timezone.utc)
+
         session.add_all(
             [
                 Requirement(
@@ -35,7 +42,9 @@ def test_requirements_list_is_scoped_by_org(client):
                     description_en="Complete annual training",
                     description_es="Completar capacitación anual",
                     category="training",
-                    frequency="annual",
+                    frequency=RequirementFrequencyEnum.ANNUAL,
+                    anchor_type=RequirementAnchorTypeEnum.UPLOAD_DATE,
+                    anchor_value={"date": now.isoformat()},
                     source_ref="Sec. 1",
                     confidence=0.9,
                     trade="electrical",
@@ -51,6 +60,8 @@ def test_requirements_list_is_scoped_by_org(client):
                     description_es="Presentar permiso antes de la fecha límite",
                     category="permits",
                     frequency=None,
+                    anchor_type=RequirementAnchorTypeEnum.UPLOAD_DATE,
+                    anchor_value={"date": now.isoformat()},
                     source_ref="Sec. 2",
                     confidence=0.8,
                     trade="electrical",
@@ -90,13 +101,13 @@ def test_requirements_list_is_scoped_by_org(client):
 
     assert response.status_code == 200
     data = response.json()
-    assert len(data) == 1
-    assert data[0]["org_id"] == org_a_id
+    assert len(data["items"]) == 1
+    assert data["items"][0]["org_id"] == org_a_id
 
     client.cookies.set(settings.cookie_name, token_b)
     response_other_org = client.get("/requirements", params={"status": "OPEN"})
     client.cookies.clear()
     assert response_other_org.status_code == 200
     other_data = response_other_org.json()
-    assert len(other_data) == 1
-    assert other_data[0]["org_id"] == org_b_id
+    assert len(other_data["items"]) == 1
+    assert other_data["items"][0]["org_id"] == org_b_id

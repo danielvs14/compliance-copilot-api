@@ -3,13 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 
-from fastapi import Depends, HTTPException, Request, Response, status
-from sqlalchemy.orm import Session
+from fastapi import HTTPException, Request, Response, status
 
 from ..config import settings
 from ..models import Org, User, UserSession
 from ..services.auth import AuthError, AuthService
-from .db import get_db
+from ..db.session import SessionLocal
 
 
 @dataclass
@@ -19,17 +18,20 @@ class AuthContext:
     session: UserSession
 
 
-def require_auth(request: Request, db: Session = Depends(get_db)) -> AuthContext:
+def require_auth(request: Request) -> AuthContext:
     raw_token = request.cookies.get(settings.cookie_name)
-    service = AuthService(db)
-    row = service.session_from_token(raw_token or "")
-    if not row:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+    with SessionLocal() as db:
+        service = AuthService(db)
+        row = service.session_from_token(raw_token or "")
+        if not row:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
 
-    session, user, org = row
-    request.state.user_id = str(user.id)
-    request.state.org_id = str(org.id)
-    return AuthContext(user=user, org=org, session=session)
+        session, user, org = row
+        request.state.user_id = str(user.id)
+        request.state.org_id = str(org.id)
+        # detach objects before session closes
+        db.expunge_all()
+        return AuthContext(user=user, org=org, session=session)
 
 
 def issue_magic_link(

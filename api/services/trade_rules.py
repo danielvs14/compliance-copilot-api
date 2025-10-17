@@ -3,13 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol, Any
 
+from ..models.requirements import RequirementAnchorTypeEnum, RequirementFrequencyEnum
+
 
 @dataclass
 class RequirementDraft:
     title_en: str
     description_en: str
     category: str | None
-    frequency: str | None
+    frequency: RequirementFrequencyEnum | None
     due_date: str | None
     source_ref: str
     confidence: float
@@ -17,6 +19,9 @@ class RequirementDraft:
     title_es: str | None = None
     description_es: str | None = None
     attributes: dict[str, Any] = field(default_factory=dict)
+    triage_flags: list[str] = field(default_factory=list)
+    anchor_type: RequirementAnchorTypeEnum | None = None
+    anchor_value: dict[str, Any] = field(default_factory=dict)
 
 
 class TradeRuleSet(Protocol):

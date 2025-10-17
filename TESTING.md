@@ -3,7 +3,19 @@
 ## Database & Migrations
 - `alembic upgrade head` against a clean Postgres container (via `docker compose up`) must succeed.
 - Run `alembic downgrade base && alembic upgrade head` in CI to ensure idempotent migrations.
-- Smoke check seed script: `python seed.py` twice; second run should no-op and log "Seed already applied".
+- Smoke check seed script: `python seed.py` twice; the second run should report `new requirements=0` for each org.
+
+## Seed Data Snapshot
+- Orgs: `Brightline Electric` and `Evergreen Renewables` (slugs match names) with deterministic UUIDs.
+- Users: Owner/Admin pairs seeded per org with active memberships and locale hints (EN/ES).
+- Requirements: 10 total across four documents (arc flash program, switchgear matrix, lockout-tagout checklist, training matrix) with bilingual text and preset frequencies.
+- Permits: 3 total (state contractor licenses + Austin permit) with issuance/expiry dates for reminder testing.
+- Training certs: 3 total (OSHA 30, CPR/First Aid, MEWP) with expiry windows for scheduling logic.
+- Fixtures: Lightweight excerpts live under `tests/fixtures/seed/` for deterministic document previews.
+
+## Observability
+- Enable `SENTRY_DSN`/`SENTRY_TRACES_SAMPLE_RATE` to ship FastAPI traces and errors to Sentry (SQLAlchemy + logging integrations wired).
+- Metrics surface at `/metrics` via Prometheus instrumentation; `/healthz` added for k8s-style probes.
 
 ## Unit Tests
 1. **Regex fallback** (`api/services/regex_fallback.py`)
@@ -55,3 +67,4 @@ Execute with `pytest` targeting new test modules (e.g., `tests/unit/test_regex_f
 - Export ephemeral AWS creds for moto/localstack (optional but keeps boto3 happy):
   - `export AWS_ACCESS_KEY_ID=test` `export AWS_SECRET_ACCESS_KEY=test` `export AWS_REGION=us-east-1`
 - Run the suite: `pytest`
+- Target specific groups: `pytest -m unit` or `pytest -m integration`.

@@ -230,7 +230,7 @@ class AuthService:
         # create new org for first-time user
         local_part = user.email.split("@")[0]
         default_name = f"{local_part.title()} Electrical"
-        org = Org(name=default_name[:100])
+        org = Org(name=default_name[:100], primary_trade="electrical")
         self.db.add(org)
         self.db.flush()
 

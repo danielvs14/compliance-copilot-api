@@ -74,7 +74,7 @@ def cleanup_database() -> Iterator[None]:
     with SessionLocal() as session:
         session.execute(
             text(
-                "TRUNCATE TABLE login_tokens, user_sessions, memberships, requirements, reminder_jobs, documents, events, permits, training_certs, org_requirement_metrics, users, orgs RESTART IDENTITY CASCADE"
+                "TRUNCATE TABLE login_tokens, user_sessions, memberships, requirements, requirement_templates, document_templates, reminder_jobs, documents, events, permits, training_certs, org_requirement_metrics, users, orgs RESTART IDENTITY CASCADE"
             )
         )
         session.commit()

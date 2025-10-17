@@ -74,6 +74,30 @@ class StorageService:
         except (BotoCoreError, ClientError) as exc:
             raise RuntimeError(f"Failed to delete S3 object: {exc}") from exc
 
+    def open_stream(self, key: str):
+        try:
+            obj = self._client.get_object(Bucket=self.bucket, Key=key)
+            body = obj["Body"]
+            metadata = {
+                "content_type": obj.get("ContentType", "application/octet-stream"),
+                "content_length": obj.get("ContentLength"),
+            }
+
+            def iterator(chunk_size: int = 1024 * 64):
+                for chunk in body.iter_chunks(chunk_size):
+                    if chunk:
+                        yield chunk
+
+            def closer():
+                try:
+                    body.close()
+                except Exception:  # pragma: no cover - best effort
+                    pass
+
+            return iterator, metadata, closer
+        except (BotoCoreError, ClientError) as exc:
+            raise RuntimeError(f"Failed to download S3 object: {exc}") from exc
+
 
 def get_storage_service() -> StorageService:
     return StorageService()

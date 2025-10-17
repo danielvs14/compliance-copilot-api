@@ -2,6 +2,7 @@ from sqlalchemy import Column, DateTime, ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 import uuid
+from sqlalchemy.orm import relationship
 from .base import Base
 
 class Document(Base):
@@ -15,3 +16,9 @@ class Document(Base):
     text_excerpt = Column(String, nullable=True)         # optional short text
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     extracted_at = Column(DateTime(timezone=True), nullable=True)
+
+    requirements = relationship(
+        "Requirement",
+        back_populates="document",
+        cascade="all, delete-orphan",
+    )

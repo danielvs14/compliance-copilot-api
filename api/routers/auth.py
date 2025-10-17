@@ -44,6 +44,7 @@ def _serialize_org(org: Org) -> dict:
         "id": str(org.id),
         "name": org.name,
         "slug": org.slug,
+        "primary_trade": getattr(org, "primary_trade", None),
     }
 
 

@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     cookie_name: str = Field(default="cc_session", alias="SESSION_COOKIE_NAME")
     cookie_domain: Optional[str] = Field(default=None, alias="SESSION_COOKIE_DOMAIN")
     allow_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000", "http://127.0.0.1:3000"], alias="CORS_ALLOW_ORIGINS")
+    sentry_dsn: Optional[str] = Field(default=None, alias="SENTRY_DSN")
+    sentry_traces_sample_rate: float = Field(default=0.1, alias="SENTRY_TRACES_SAMPLE_RATE")
+    sentry_profiles_sample_rate: float = Field(default=0.0, alias="SENTRY_PROFILES_SAMPLE_RATE")
+    metrics_enabled: bool = Field(default=True, alias="METRICS_ENABLED")
+    extraction_cache_dir: Path | None = Field(default=Path(".cache/extraction"), alias="EXTRACTION_CACHE_DIR")
+
 
     aws: AwsSettings = Field(default_factory=AwsSettings)
 
@@ -80,6 +86,9 @@ class Settings(BaseSettings):
             s3_bucket=os.getenv("S3_BUCKET", self.aws.s3_bucket),
             s3_endpoint_url=os.getenv("S3_ENDPOINT_URL", self.aws.s3_endpoint_url),
         )
+
+        if not self.sentry_dsn or not str(self.sentry_dsn).strip():
+            self.sentry_dsn = None
 
         raw_origins: str | None
         if isinstance(self.allow_origins, str):

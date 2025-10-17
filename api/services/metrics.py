@@ -4,11 +4,59 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Dict
 
+from prometheus_client import Counter
 from sqlalchemy.orm import Session
 
 from ..models.org_metrics import OrgRequirementMetrics
 from ..models.reminder_jobs import ReminderJob, ReminderStatusEnum
 from ..models.requirements import Requirement
+
+
+REQUIREMENTS_CREATED_COUNTER = Counter(
+    "cc_requirements_created_total",
+    "Total requirements created per org",
+    ["org_id"],
+)
+
+REQUIREMENTS_COMPLETED_COUNTER = Counter(
+    "cc_requirements_completed_total",
+    "Total requirements completed per org",
+    ["org_id"],
+)
+
+REMINDERS_SCHEDULED_COUNTER = Counter(
+    "cc_reminders_scheduled_total",
+    "Reminders scheduled per org",
+    ["org_id"],
+)
+
+REMINDERS_SENT_COUNTER = Counter(
+    "cc_reminders_sent_total",
+    "Reminders successfully sent per org",
+    ["org_id"],
+)
+
+REMINDERS_FAILED_COUNTER = Counter(
+    "cc_reminders_failed_total",
+    "Reminders failed per org",
+    ["org_id"],
+)
+
+OVERDUE_COMPLETIONS_COUNTER = Counter(
+    "cc_overdue_completions_total",
+    "Requirements completed after due date per org",
+    ["org_id"],
+)
+
+POST_REMINDER_COMPLETIONS_COUNTER = Counter(
+    "cc_post_reminder_completions_total",
+    "Requirements completed after reminder per org",
+    ["org_id"],
+)
+
+
+def _org_label(org_id: uuid.UUID | None) -> str:
+    return str(org_id) if org_id else "unknown"
 
 
 def _get_metrics_row(db: Session, org_id: uuid.UUID) -> OrgRequirementMetrics:
@@ -31,6 +79,7 @@ def record_requirements_created(db: Session, org_id: uuid.UUID, count: int) -> N
     metrics = _get_metrics_row(db, org_id)
     current = metrics.requirements_created_total or 0
     metrics.requirements_created_total = current + count
+    REQUIREMENTS_CREATED_COUNTER.labels(org_id=_org_label(org_id)).inc(count)
 
 
 def _bucket_for_delta(delta: timedelta) -> str:
@@ -52,6 +101,7 @@ def record_requirement_completed(db: Session, requirement: Requirement) -> None:
 
     metrics = _get_metrics_row(db, requirement.org_id)
     metrics.requirements_completed_total = (metrics.requirements_completed_total or 0) + 1
+    REQUIREMENTS_COMPLETED_COUNTER.labels(org_id=_org_label(requirement.org_id)).inc()
 
     histogram: Dict[str, int] = metrics.completion_time_histogram or {}
     bucket = _bucket_for_delta(requirement.completed_at - requirement.created_at)
@@ -62,16 +112,19 @@ def record_requirement_completed(db: Session, requirement: Requirement) -> None:
 def record_reminder_scheduled(db: Session, org_id: uuid.UUID) -> None:
     metrics = _get_metrics_row(db, org_id)
     metrics.reminders_scheduled_total = (metrics.reminders_scheduled_total or 0) + 1
+    REMINDERS_SCHEDULED_COUNTER.labels(org_id=_org_label(org_id)).inc()
 
 
 def record_reminder_sent(db: Session, org_id: uuid.UUID) -> None:
     metrics = _get_metrics_row(db, org_id)
     metrics.reminders_sent_total = (metrics.reminders_sent_total or 0) + 1
+    REMINDERS_SENT_COUNTER.labels(org_id=_org_label(org_id)).inc()
 
 
 def record_reminder_failed(db: Session, org_id: uuid.UUID) -> None:
     metrics = _get_metrics_row(db, org_id)
     metrics.reminders_failed_total = (metrics.reminders_failed_total or 0) + 1
+    REMINDERS_FAILED_COUNTER.labels(org_id=_org_label(org_id)).inc()
 
 
 def record_overdue_completion(db: Session, requirement: Requirement) -> None:
@@ -83,6 +136,7 @@ def record_overdue_completion(db: Session, requirement: Requirement) -> None:
 
     metrics = _get_metrics_row(db, requirement.org_id)
     metrics.overdue_completion_total = (metrics.overdue_completion_total or 0) + 1
+    OVERDUE_COMPLETIONS_COUNTER.labels(org_id=_org_label(requirement.org_id)).inc()
 
     histogram: Dict[str, int] = metrics.overdue_completion_histogram or {}
     bucket = _bucket_for_delta(requirement.completed_at - requirement.due_date)
@@ -114,6 +168,7 @@ def record_completion_after_reminder(db: Session, requirement: Requirement) -> N
 
     metrics = _get_metrics_row(db, requirement.org_id)
     metrics.post_reminder_completion_total = (metrics.post_reminder_completion_total or 0) + 1
+    POST_REMINDER_COMPLETIONS_COUNTER.labels(org_id=_org_label(requirement.org_id)).inc()
 
     histogram: Dict[str, int] = metrics.post_reminder_completion_histogram or {}
     bucket = _bucket_for_delta(requirement.completed_at - sent_at)

@@ -1,0 +1,10 @@
+[tool.pytest.ini_options]
+addopts = "--cov=api --cov=tests --cov-report=term-missing --cov-report=xml:reports/coverage.xml"
+testpaths = ["tests"]
+markers = [
+  "unit: fast-running unit tests",
+  "integration: database or API integration tests",
+]
+filterwarnings = [
+  "ignore::DeprecationWarning",
+]

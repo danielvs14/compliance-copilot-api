@@ -2,20 +2,29 @@ from datetime import datetime, timedelta, timezone
 from typing import List
 from uuid import uuid4
 
+import pytest
+
 from api.db.session import SessionLocal
 from api.models.documents import Document
 from api.models.events import Event
 from api.models.memberships import Membership, MembershipRole
 from api.models.org_metrics import OrgRequirementMetrics
 from api.models.orgs import Org
+from api.models.permits import Permit
 from api.models.reminder_jobs import ReminderJob, ReminderStatusEnum
-from api.models.requirements import Requirement, RequirementStatusEnum
+from api.models.requirements import (
+    Requirement,
+    RequirementAnchorTypeEnum,
+    RequirementFrequencyEnum,
+    RequirementStatusEnum,
+)
+from api.models.training_certs import TrainingCert
 from api.models.users import User
 from api.services.reminders import dispatch_reminders, queue_reminders
 
 
 def _setup_org_with_member(session) -> Org:
-    org = Org(name="QA Electric")
+    org = Org(name="QA Electric", primary_trade="electrical")
     user = User(email=f"owner+{uuid4()}@example.com", preferred_locale="en")
     session.add_all([org, user])
     session.flush()
@@ -26,6 +35,7 @@ def _setup_org_with_member(session) -> Org:
     return org
 
 
+@pytest.mark.integration
 def test_queue_reminders_creates_jobs_for_open_requirement() -> None:
     session = SessionLocal()
     try:
@@ -48,7 +58,9 @@ def test_queue_reminders_creates_jobs_for_open_requirement() -> None:
             description_en="Do the thing",
             description_es="Haz la cosa",
             category="safety",
-            frequency="weekly",
+            frequency=RequirementFrequencyEnum.WEEKLY,
+            anchor_type=RequirementAnchorTypeEnum.UPLOAD_DATE,
+            anchor_value={"date": base_time.isoformat()},
             due_date=base_time + timedelta(days=7),
             next_due=base_time + timedelta(days=7),
             status=RequirementStatusEnum.OPEN,
@@ -81,6 +93,51 @@ def test_queue_reminders_creates_jobs_for_open_requirement() -> None:
         session.close()
 
 
+@pytest.mark.integration
+def test_queue_reminders_covers_permits_and_training() -> None:
+    session = SessionLocal()
+    try:
+        org = _setup_org_with_member(session)
+
+        base_time = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        permit = Permit(
+            org_id=org.id,
+            name="City Master Permit",
+            permit_number="AUS-55821",
+            permit_type="License",
+            jurisdiction="City of Austin",
+            issued_at=base_time - timedelta(days=120),
+            expires_at=base_time + timedelta(days=60),
+            storage_url="s3://bucket/permits/city-master-permit.pdf",
+        )
+        cert = TrainingCert(
+            org_id=org.id,
+            worker_name="Jordan Lewis",
+            certification_type="OSHA 30",
+            authority="OSHA",
+            issued_at=base_time - timedelta(days=300),
+            expires_at=base_time + timedelta(days=45),
+            storage_url="s3://bucket/training/jordan-lewis-osha30.pdf",
+        )
+        session.add_all([permit, cert])
+        session.commit()
+
+        stats = queue_reminders(session, now=base_time)
+        session.commit()
+
+        jobs = (
+            session.query(ReminderJob)
+            .filter(ReminderJob.target_type.in_(["permit", "training_cert"]))
+            .all()
+        )
+        assert len(jobs) == 6  # 3 offsets per target type
+        assert stats["scheduled"] == len(jobs)
+        assert {job.reminder_offset_days for job in jobs} == {30, 7, 1}
+        assert {job.target_type for job in jobs} == {"permit", "training_cert"}
+    finally:
+        session.close()
+
+
 class DummyEmailClient:
     def __init__(self) -> None:
         self.sent_messages: List[str] = []
@@ -89,6 +146,7 @@ class DummyEmailClient:
         self.sent_messages.append(message.subject)
 
 
+@pytest.mark.integration
 def test_dispatch_reminders_sends_email_and_updates_metrics() -> None:
     session = SessionLocal()
     try:
@@ -111,7 +169,9 @@ def test_dispatch_reminders_sends_email_and_updates_metrics() -> None:
             description_en="Check before shift",
             description_es="Revisar antes del turno",
             category="safety",
-            frequency="weekly",
+            frequency=RequirementFrequencyEnum.WEEKLY,
+            anchor_type=RequirementAnchorTypeEnum.UPLOAD_DATE,
+            anchor_value={"date": base_time.isoformat()},
             due_date=base_time + timedelta(days=7),
             next_due=base_time + timedelta(days=7),
             status=RequirementStatusEnum.OPEN,

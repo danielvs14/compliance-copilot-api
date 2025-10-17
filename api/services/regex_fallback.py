@@ -4,12 +4,14 @@ import re
 from dataclasses import dataclass
 from typing import List
 
+from ..models.requirements import RequirementFrequencyEnum
+
 FREQUENCY_KEYWORDS = {
-    "daily": re.compile(r"\b(daily|cada\s+d[ií]a)\b", re.IGNORECASE),
-    "weekly": re.compile(r"\b(weekly|cada\s+semana)\b", re.IGNORECASE),
-    "monthly": re.compile(r"\b(monthly|cada\s+mes)\b", re.IGNORECASE),
-    "annual": re.compile(r"\b(annual|annually|cada\s+a[nñ]o)\b", re.IGNORECASE),
-    "before each use": re.compile(r"\b(before\s+each\s+use|antes\s+de\s+cada\s+uso)\b", re.IGNORECASE),
+    RequirementFrequencyEnum.DAILY: re.compile(r"\b(daily|cada\s+d[ií]a)\b", re.IGNORECASE),
+    RequirementFrequencyEnum.WEEKLY: re.compile(r"\b(weekly|cada\s+semana)\b", re.IGNORECASE),
+    RequirementFrequencyEnum.MONTHLY: re.compile(r"\b(monthly|cada\s+mes)\b", re.IGNORECASE),
+    RequirementFrequencyEnum.ANNUAL: re.compile(r"\b(annual|annually|cada\s+a[nñ]o)\b", re.IGNORECASE),
+    RequirementFrequencyEnum.BEFORE_EACH_USE: re.compile(r"\b(before\s+each\s+use|antes\s+de\s+cada\s+uso)\b", re.IGNORECASE),
 }
 
 
@@ -17,7 +19,7 @@ FREQUENCY_KEYWORDS = {
 class RegexRequirement:
     title_en: str
     description_en: str
-    frequency: str
+    frequency: RequirementFrequencyEnum
     source_ref: str
     confidence: float = 0.45
     origin: str = "regex"

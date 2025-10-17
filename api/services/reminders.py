@@ -135,15 +135,30 @@ def queue_reminders(db: Session, *, now: datetime | None = None) -> dict[str, in
             org_cache[org_id] = _collect_recipients(db, org_id)
         return org_cache[org_id]
 
+    active_statuses = [RequirementStatusEnum.OPEN, RequirementStatusEnum.READY]
     requirements = (
         db.query(Requirement)
-        .filter(Requirement.status == RequirementStatusEnum.OPEN)
+        .filter(Requirement.status.in_(active_statuses))
         .all()
     )
 
     for req in requirements:
-        next_due = compute_next_due(req.next_due or req.due_date, req.frequency, base_time=now)
-        req.next_due = next_due
+        archive_state = ((req.attributes or {}).get("archive") or {}).get("state")
+        if archive_state in {"archived", "deleted", "pending"}:
+            continue
+
+        next_due = req.next_due or req.due_date
+        if not next_due or next_due < now:
+            next_due = compute_next_due(
+                req.frequency,
+                getattr(req, "anchor_type", None),
+                getattr(req, "anchor_value", {}) or {},
+                last_completion=req.completed_at,
+                reference_time=now,
+            )
+            req.next_due = next_due
+            if next_due:
+                req.due_date = next_due
         if not next_due:
             continue
 
